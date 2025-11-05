@@ -2,8 +2,10 @@ from enum import Enum
 from typing import Callable, Tuple, List, Dict
 from functools import wraps
 from collections import UserDict
-import re
 from datetime import datetime, date, timedelta
+import re
+
+DATE_STR_PATTERN = "%d.%m.%Y"
 
 
 class Command(Enum):
@@ -36,17 +38,12 @@ def input_error(func: Callable):
                 if needle in msg:
                     return human
             return msg
+        except AttributeError:
+            return "No such contact in the address book."
         except Exception:
             return "An unexpected error occurred. Please try again."
+
     return inner
-
-
-@input_error
-def parse_command(user_input: str) -> Tuple[str, ...]:
-    user_input = user_input.strip()
-    cmd, *args = user_input.split()
-    cmd = cmd.strip().upper()
-    return (cmd, *args)
 
 
 class Field:
@@ -86,8 +83,6 @@ class Phone(Field):
 
 
 class Birthday(Field):
-    STR_PATTERN = "%d.%m.%Y"
-
     def __init__(self, value: str):
         super().__init__(None)
         if value is not None:
@@ -105,7 +100,7 @@ class Birthday(Field):
         if not isinstance(new_value, str):
             raise TypeError("The birthday date must be a string")
         try:
-            d = datetime.strptime(new_value, self.STR_PATTERN).date()
+            d = datetime.strptime(new_value, DATE_STR_PATTERN).date()
         except ValueError as exc:
             raise ValueError("Invalid date format. Use DD.MM.YYYY") from exc
         self._value = d
@@ -146,7 +141,7 @@ class Record:
     def __str__(self):
         phones = "; ".join(p.value for p in self.phones) if self.phones else "—"
         bday_val = self.birthday.value if self.birthday else None
-        bday = bday_val.strftime(Birthday.STR_PATTERN) if bday_val else "—"
+        bday = bday_val.strftime(DATE_STR_PATTERN) if bday_val else "—"
         return f"Contact name: {self.name.value}, phones: {phones}, birthday: {bday}"
 
 
@@ -177,9 +172,9 @@ class AddressBook(UserDict):
             if candidate < now:
                 candidate = date(now.year + 1, bday.month, bday.day)
 
-            if candidate.weekday() == 5:
+            if candidate.weekday() == 5:  # Saturday
                 adjusted = candidate + timedelta(days=2)
-            elif candidate.weekday() == 6:
+            elif candidate.weekday() == 6:  # Sunday
                 adjusted = candidate + timedelta(days=1)
             else:
                 adjusted = candidate
@@ -202,6 +197,17 @@ class AddressBook(UserDict):
 
 
 @input_error
+def parse_command(user_input: str) -> Tuple[str, ...]:
+    user_input = user_input.strip()
+    cmd, *args = user_input.split()
+    cmd = cmd.strip().upper()
+    return (cmd, *args)
+
+
+def to_dashed(text: str) -> str:
+    return text.strip().upper().replace("_", "-").replace(" ", "-")
+
+@input_error
 def add_contact(args, book: AddressBook) -> str:
     if len(args) < 2:
         raise ValueError("Format: add <name> <phone>")
@@ -222,9 +228,7 @@ def change_contact(args, book: AddressBook) -> str:
         raise ValueError("Format: change <name> <old_phone> <new_phone>")
     name, old_phone, new_phone, *_ = args
     record = book.find(name)
-    if not record:
-        return "No such contact in the address book."
-    ok = record.edit_phone(old_phone, new_phone)
+    ok = record.edit_phone(old_phone, new_phone) 
     return "Contact updated." if ok else "Old phone not found."
 
 
@@ -234,8 +238,6 @@ def show_phone(args, book: AddressBook) -> str:
         raise ValueError("Format: phone <name>")
     (name,) = args
     record = book.find(name)
-    if not record:
-        return "No such contact in the address book."
     return "; ".join(p.value for p in record.phones) if record.phones else "No phones"
 
 
@@ -250,8 +252,6 @@ def add_birthday(args, book: AddressBook) -> str:
         raise ValueError("Format: add-birthday <name> <DD.MM.YYYY>")
     name, birthday, *_ = args
     record = book.find(name)
-    if not record:
-        return "No such contact in the address book."
     record.add_birthday(birthday)
     return "Birthday added."
 
@@ -262,11 +262,9 @@ def show_birthday(args, book: AddressBook) -> str:
         raise ValueError("Format: show-birthday <name>")
     name, *_ = args
     record = book.find(name)
-    if not record:
-        return "No such contact in the address book."
     if record.birthday is None or record.birthday.value is None:
         return "No birthday set."
-    return record.birthday.value.strftime(Birthday.STR_PATTERN)
+    return record.birthday.value.strftime(DATE_STR_PATTERN)
 
 
 def show_nearest_birthdays(book: AddressBook) -> str:
@@ -280,10 +278,7 @@ def show_nearest_birthdays(book: AddressBook) -> str:
     return "\n".join(lines)
 
 
-def to_dashed(text: str) -> str:
-    return text.strip().upper().replace("_", "-").replace(" ", "-")
-
-
+@input_error
 def main() -> None:
     book = AddressBook()
     print("Welcome to the assistant bot!")
